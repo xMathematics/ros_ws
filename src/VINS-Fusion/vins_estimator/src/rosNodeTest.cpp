@@ -221,52 +221,116 @@ void cam_switch_callback(const std_msgs::BoolConstPtr &switch_msg)
     return;
 }
 
+// VIO系统的主函数入口
+// 参数：
+//   argc: 命令行参数数量
+//   argv: 命令行参数数组
 int main(int argc, char **argv)
 {
+    // 初始化ROS节点
+    // "vins_estimator"是节点名称
     ros::init(argc, argv, "vins_estimator");
+    
+    // 创建节点句柄，使用私有命名空间（~）
+    // 私有命名空间意味着参数可以相对节点名访问
     ros::NodeHandle n("~");
+    
+    // 设置ROS日志级别为Info
+    // ROSCONSOLE_DEFAULT_NAME是默认日志记录器名称
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
 
+    // 检查命令行参数数量
+    // 程序需要1个参数：配置文件路径（argc=2，因为第一个参数是程序名）
     if(argc != 2)
     {
+        // 输出使用说明
         printf("please intput: rosrun vins vins_node [config file] \n"
                "for example: rosrun vins vins_node "
                "~/catkin_ws/src/VINS-Fusion/config/euroc/euroc_stereo_imu_config.yaml \n");
-        return 1;
+        return 1;  // 返回非0表示程序异常结束
     }
 
+    // 获取配置文件路径（第二个命令行参数）
     string config_file = argv[1];
     printf("config_file: %s\n", argv[1]);
 
+    // 从配置文件中读取参数（全局函数，读取到全局变量中）
     readParameters(config_file);
+    
+    // 设置估计器的参数（将读取的参数应用到Estimator对象中）
     estimator.setParameter();
 
+// 条件编译：如果定义了EIGEN_DONT_PARALLELIZE宏，则禁用Eigen并行计算
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
 
+    // 输出等待传感器数据的提示信息
     ROS_WARN("waiting for image and imu...");
 
+    // 注册发布器（用于发布位姿、点云、路径等消息）
     registerPub(n);
 
+    // 定义IMU订阅器
     ros::Subscriber sub_imu;
+    
+    // 如果系统配置使用IMU（USE_IMU是配置文件中的参数）
     if(USE_IMU)
     {
+        // 订阅IMU话题
+        // 参数：
+        //   IMU_TOPIC: 话题名称（从配置文件读取）
+        //   2000: 队列大小（缓存的消息数量）
+        //   imu_callback: 回调函数，处理接收到的IMU数据
+        //   ros::TransportHints().tcpNoDelay(): 传输提示，使用TCP无延迟模式（减少延迟）
         sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
     }
+    
+    // 订阅特征点话题（来自特征跟踪节点）
+    // 话题名："/feature_tracker/feature"
+    // 队列大小：2000
+    // 回调函数：feature_callback
     ros::Subscriber sub_feature = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
+    
+    // 订阅左目图像话题（用于特征跟踪，这里可能是备用或调试用途）
+    // IMAGE0_TOPIC: 左目图像话题名称
+    // 队列大小：100（图像数据量大，队列较小）
+    // 回调函数：img0_callback
     ros::Subscriber sub_img0 = n.subscribe(IMAGE0_TOPIC, 100, img0_callback);
+    
+    // 定义右目图像订阅器
     ros::Subscriber sub_img1;
+    
+    // 如果系统配置为双目（STEREO是配置文件中的参数）
     if(STEREO)
     {
+        // 订阅右目图像话题
         sub_img1 = n.subscribe(IMAGE1_TOPIC, 100, img1_callback);
     }
+    
+    // 订阅重启话题（用于系统重启）
+    // 话题名："/vins_restart"
+    // 回调函数：restart_callback
     ros::Subscriber sub_restart = n.subscribe("/vins_restart", 100, restart_callback);
+    
+    // 订阅IMU开关话题（用于动态启用/禁用IMU）
+    // 话题名："/vins_imu_switch"
+    // 回调函数：imu_switch_callback
     ros::Subscriber sub_imu_switch = n.subscribe("/vins_imu_switch", 100, imu_switch_callback);
+    
+    // 订阅相机开关话题（用于动态启用/禁用相机）
+    // 话题名："/vins_cam_switch"
+    // 回调函数：cam_switch_callback
     ros::Subscriber sub_cam_switch = n.subscribe("/vins_cam_switch", 100, cam_switch_callback);
 
+    // 创建并启动同步处理线程
+    // sync_process: 线程函数，负责同步和处理IMU和图像数据
     std::thread sync_thread{sync_process};
+    
+    // ROS主循环
+    // 阻塞等待回调函数被调用，直到节点被关闭
     ros::spin();
 
+    // 程序正常退出
     return 0;
 }
