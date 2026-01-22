@@ -142,7 +142,7 @@ class FeatureManager
     // 返回值：是否需要将当前帧作为关键帧（基于视差检查）
     bool addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td);
     
-    // 获取两帧之间的对应特征点对（用于三角化或优化）
+    // 获取两帧之间的对应特征点对（用于三角化或优化） 
     // 参数：
     //   frame_count_l: 左帧索引
     //   frame_count_r: 右帧索引
