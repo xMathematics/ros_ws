@@ -397,17 +397,25 @@ void command()
     }
 }
 
+// 主函数入口
 int main(int argc, char **argv)
 {
+    // 初始化ROS节点，节点名为"loop_fusion"
     ros::init(argc, argv, "loop_fusion");
+    // 创建节点句柄，使用私有命名空间（参数前面会加~）
     ros::NodeHandle n("~");
+    // 向posegraph对象注册发布器，用于发布可视化消息
     posegraph.registerPub(n);
     
+    // 初始化可视化参数（用于调整可视化显示的偏移量）
     VISUALIZATION_SHIFT_X = 0;
     VISUALIZATION_SHIFT_Y = 0;
+    // 初始化跳帧参数（用于控制处理频率）
     SKIP_CNT = 0;
+    // 初始化跳过距离参数（用于关键帧选择）
     SKIP_DIS = 0;
 
+    // 检查命令行参数数量，需要传入配置文件路径
     if(argc != 2)
     {
         printf("please intput: rosrun loop_fusion loop_fusion_node [config file] \n"
@@ -416,68 +424,90 @@ int main(int argc, char **argv)
         return 0;
     }
     
+    // 获取配置文件路径
     string config_file = argv[1];
     printf("config_file: %s\n", argv[1]);
 
+    // 使用OpenCV的FileStorage读取YAML配置文件
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
 
+    // 设置相机位姿可视化器的参数
     cameraposevisual.setScale(0.1);
     cameraposevisual.setLineWidth(0.01);
 
+    // 定义变量存储配置参数
     std::string IMAGE_TOPIC;
     int LOAD_PREVIOUS_POSE_GRAPH;
 
+    // 从配置文件中读取图像尺寸
     ROW = fsSettings["image_height"];
     COL = fsSettings["image_width"];
+    // 获取loop_fusion包的路径
     std::string pkg_path = ros::package::getPath("loop_fusion");
+    // 构建词袋文件路径（用于闭环检测）
     string vocabulary_file = pkg_path + "/../support_files/brief_k10L6.bin";
     cout << "vocabulary_file" << vocabulary_file << endl;
+    // 加载词袋模型
     posegraph.loadVocabulary(vocabulary_file);
 
+    // 设置BRIEF描述子模式文件路径
     BRIEF_PATTERN_FILE = pkg_path + "/../support_files/brief_pattern.yml";
     cout << "BRIEF_PATTERN_FILE" << BRIEF_PATTERN_FILE << endl;
 
+    // 从配置文件路径中提取目录路径
     int pn = config_file.find_last_of('/');
     std::string configPath = config_file.substr(0, pn);
+    // 读取相机标定文件路径
     std::string cam0Calib;
     fsSettings["cam0_calib"] >> cam0Calib;
+    // 构建完整的相机标定文件路径
     std::string cam0Path = configPath + "/" + cam0Calib;
     printf("cam calib path: %s\n", cam0Path.c_str());
+    // 使用camodocal库生成相机模型
     m_camera = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(cam0Path.c_str());
 
-    fsSettings["image0_topic"] >> IMAGE_TOPIC;        
-    fsSettings["pose_graph_save_path"] >> POSE_GRAPH_SAVE_PATH;
-    fsSettings["output_path"] >> VINS_RESULT_PATH;
-    fsSettings["save_image"] >> DEBUG_IMAGE;
+    // 从配置文件中读取更多参数
+    fsSettings["image0_topic"] >> IMAGE_TOPIC;        // 图像话题名称
+    fsSettings["pose_graph_save_path"] >> POSE_GRAPH_SAVE_PATH;  // 位姿图保存路径
+    fsSettings["output_path"] >> VINS_RESULT_PATH;    // 输出结果路径
+    fsSettings["save_image"] >> DEBUG_IMAGE;          // 是否保存调试图像
 
+    // 是否加载之前保存的位姿图
     LOAD_PREVIOUS_POSE_GRAPH = fsSettings["load_previous_pose_graph"];
+    // 构建完整的结果输出文件路径
     VINS_RESULT_PATH = VINS_RESULT_PATH + "/vio_loop.csv";
+    // 创建输出文件（清空原有内容）
     std::ofstream fout(VINS_RESULT_PATH, std::ios::out);
     fout.close();
 
+    // 读取是否使用IMU数据
     int USE_IMU = fsSettings["imu"];
     posegraph.setIMUFlag(USE_IMU);
+    // 释放配置文件
     fsSettings.release();
 
+    // 如果配置要求加载之前保存的位姿图
     if (LOAD_PREVIOUS_POSE_GRAPH)
     {
         printf("load pose graph\n");
+        // 加锁以保证线程安全
         m_process.lock();
         posegraph.loadPoseGraph();
         m_process.unlock();
         printf("load pose graph finish\n");
-        load_flag = 1;
+        load_flag = 1;  // 设置加载标志
     }
     else
     {
         printf("no previous pose graph\n");
-        load_flag = 1;
+        load_flag = 1;  // 即使不加载也设置标志
     }
 
+    // 创建ROS订阅器，订阅VIO估计器的各种话题
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 2000, vio_callback);
     ros::Subscriber sub_image = n.subscribe(IMAGE_TOPIC, 2000, image_callback);
     ros::Subscriber sub_pose = n.subscribe("/vins_estimator/keyframe_pose", 2000, pose_callback);
@@ -485,18 +515,22 @@ int main(int argc, char **argv)
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/keyframe_point", 2000, point_callback);
     ros::Subscriber sub_margin_point = n.subscribe("/vins_estimator/margin_cloud", 2000, margin_point_callback);
 
-    pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);
-    pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);
-    pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud_loop_rect", 1000);
-    pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("margin_cloud_loop_rect", 1000);
-    pub_odometry_rect = n.advertise<nav_msgs::Odometry>("odometry_rect", 1000);
+    // 创建ROS发布器，发布各种消息
+    pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);  // 特征匹配图像
+    pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);  // 相机位姿可视化
+    pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud_loop_rect", 1000);  // 点云
+    pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("margin_cloud_loop_rect", 1000);  // 边缘化点云
+    pub_odometry_rect = n.advertise<nav_msgs::Odometry>("odometry_rect", 1000);  // 优化后的里程计
 
+    // 创建线程处理测量数据和键盘命令
     std::thread measurement_process;
     std::thread keyboard_command_process;
 
+    // 启动处理线程和键盘命令线程
     measurement_process = std::thread(process);
     keyboard_command_process = std::thread(command);
     
+    // ROS主循环，等待回调
     ros::spin();
 
     return 0;

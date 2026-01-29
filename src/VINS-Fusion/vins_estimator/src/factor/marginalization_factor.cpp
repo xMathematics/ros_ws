@@ -452,8 +452,8 @@ void MarginalizationInfo::marginalize()
 //   返回保留参数块的新地址向量
 std::vector<double *> MarginalizationInfo::getParameterBlocks(std::unordered_map<long, double *> &addr_shift)
 {
+    std::vector<double *> keep_block_addr;
     // 清空保留参数块的相关信息，准备重新填充
-    keep_block_addr.clear();
     keep_block_size.clear();
     keep_block_idx.clear();
     keep_block_data.clear();
@@ -556,7 +556,8 @@ bool MarginalizationFactor::Evaluate(double const *const *parameters, double *re
             
             // 旋转部分：使用四元数的李代数扰动
             // 计算相对旋转：q0^{-1} * q
-            Eigen::Quaterniond q0_inv(x0(6), x0(3), x0(4), x0(5)).inverse();
+            Eigen::Quaterniond q0_inv(x0(6), x0(3), x0(4), x0(5));
+            q0_inv.inverse();
             Eigen::Quaterniond q(x(6), x(3), x(4), x(5));
             Eigen::Quaterniond dq = q0_inv * q;
             
